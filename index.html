@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>工程記帳系統 v3</title>
+<style>
+body{font-family:Arial,sans-serif;background:#f4f6fb;margin:0;padding:20px;color:#111827}
+.card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:16px;margin-bottom:16px}
+.row{display:flex;gap:16px;flex-wrap:wrap}
+.kpi{flex:1;min-width:220px}
+.value{font-size:32px;font-weight:700}
+.success{color:#16a34a}.danger{color:#dc2626}.primary{color:#2563eb}
+input,select,textarea,button{width:100%;padding:12px;border-radius:12px;border:1px solid #d1d5db;margin-top:6px}
+button{background:#2563eb;color:#fff;font-weight:700;cursor:pointer}
+table{width:100%;border-collapse:collapse}
+th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left}
+</style>
+</head>
+<body>
+<h1>🏗️ 工程記帳系統 v3</h1>
+<p>單一 HTML 離線版，下載後雙擊即可使用，資料會保存在瀏覽器。</p>
+
+<div class="row">
+  <div class="card kpi"><div>本月收入</div><div id="income" class="value success">$0</div></div>
+  <div class="card kpi"><div>本月支出</div><div id="expense" class="value danger">$0</div></div>
+  <div class="card kpi"><div>目前結餘</div><div id="balance" class="value primary">$0</div></div>
+</div>
+
+<div class="card">
+  <h2>新增記帳</h2>
+  <form id="form">
+    <label>類型</label>
+    <select id="type">
+      <option value="expense">支出</option>
+      <option value="income">收入</option>
+    </select>
+
+    <label>科目</label>
+    <select id="category"></select>
+
+    <label>項目</label>
+    <input id="item" placeholder="例如：鋼筋、加油、便當">
+
+    <label>金額</label>
+    <input id="amount" type="number" min="0">
+
+    <label>日期</label>
+    <input id="date" type="date">
+
+    <label>備註</label>
+    <textarea id="note"></textarea>
+
+    <button type="submit">儲存記帳</button>
+  </form>
+</div>
+
+<div class="card">
+  <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
+    <input id="search" placeholder="搜尋科目、項目、備註" style="max-width:260px" oninput="render()">
+    <button type="button" onclick="exportCSV()" style="max-width:180px">匯出 CSV</button>
+  </div>
+
+  <div style="overflow:auto;margin-top:12px">
+    <table>
+      <thead>
+        <tr><th>日期</th><th>類型</th><th>科目</th><th>項目</th><th>備註</th><th>金額</th><th>操作</th></tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const CATEGORY_MAP = {
+  income:['工程收入','薪資','獎金','其他收入'],
+  expense:['材料費','油資','餐飲','工具費','交通費','其他支出']
+};
+
+const state = {
+  transactions: JSON.parse(localStorage.getItem('transactions') || '[]')
+};
+
+const typeEl = document.getElementById('type');
+const categoryEl = document.getElementById('category');
+
+function populateCategories(){
+  categoryEl.innerHTML = CATEGORY_MAP[typeEl.value]
+    .map(c => `<option value="${c}">${c}</option>`).join('');
+}
+
+typeEl.addEventListener('change', populateCategories);
+populateCategories();
+
+document.getElementById('date').value = new Date().toISOString().slice(0,10);
+
+function fmt(n){
+  return '$' + Number(n || 0).toLocaleString('zh-TW');
+}
+
+function save(){
+  localStorage.setItem('transactions', JSON.stringify(state.transactions));
+}
+
+function summary(){
+  const income = state.transactions.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
+  const expense = state.transactions.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
+  document.getElementById('income').textContent = fmt(income);
+  document.getElementById('expense').textContent = fmt(expense);
+  document.getElementById('balance').textContent = fmt(income-expense);
+}
+
+function render(){
+  const q = document.getElementById('search').value.toLowerCase();
+  const rows = state.transactions.filter(t =>
+    [t.category,t.item,t.note].join(' ').toLowerCase().includes(q)
+  ).sort((a,b)=>b.date.localeCompare(a.date));
+
+  document.getElementById('tbody').innerHTML = rows.map(t => `
+    <tr>
+      <td>${t.date}</td>
+      <td>${t.type==='income'?'收入':'支出'}</td>
+      <td>${t.category}</td>
+      <td>${t.item || ''}</td>
+      <td>${t.note || ''}</td>
+      <td style="color:${t.type==='income'?'#16a34a':'#dc2626'};font-weight:700">
+        ${t.type==='income'?'+':'-'}${fmt(t.amount)}
+      </td>
+      <td><button type="button" onclick="removeTx('${t.id}')" style="background:#fff;color:#111;border:1px solid #d1d5db">刪除</button></td>
+    </tr>
+  `).join('');
+}
+
+function removeTx(id){
+  if(!confirm('確定刪除？')) return;
+  state.transactions = state.transactions.filter(t=>t.id!==id);
+  save(); summary(); render();
+}
+
+document.getElementById('form').addEventListener('submit', e => {
+  e.preventDefault();
+
+  const tx = {
+    id: crypto.randomUUID(),
+    type: typeEl.value,
+    category: categoryEl.value,
+    item: document.getElementById('item').value,
+    amount: Number(document.getElementById('amount').value || 0),
+    date: document.getElementById('date').value,
+    note: document.getElementById('note').value
+  };
+
+  if(!tx.amount){
+    alert('請輸入金額');
+    return;
+  }
+
+  state.transactions.push(tx);
+  save(); summary(); render();
+  e.target.reset();
+  document.getElementById('date').value = new Date().toISOString().slice(0,10);
+  populateCategories();
+  alert('已儲存');
+});
+
+function exportCSV(){
+  const headers = ['日期','類型','科目','項目','備註','金額'];
+  const rows = state.transactions.map(t => [
+    t.date,
+    t.type==='income'?'收入':'支出',
+    t.category,
+    t.item,
+    t.note,
+    t.amount
+  ]);
+
+  const csv = [headers, ...rows]
+    .map(r => r.map(v => `"${String(v ?? '').replaceAll('"','""')}"`).join(','))
+    .join('\n');
+
+  const blob = new Blob(['\ufeff' + csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `工程記帳_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+summary();
+render();
+</script>
+</body>
+</html>
